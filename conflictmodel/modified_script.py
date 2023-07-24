@@ -268,7 +268,7 @@ class Simulation:
             actors_pos[actor_index] = (row, col)
         return actors_pos
 
-    def simulate_activation(self):
+    def simulate_activation(self, land_combat):
         class Status:
             def __init__(self, target, target_alley, target_resources, attacker_alley, attacker_resources, susceptibility):
                 self.target = target
@@ -286,33 +286,26 @@ class Simulation:
                 if i == attacker:
                     continue
                 topology = groups_matrix(M, grid, actors_pos, attacker, i)
-                """if land_combat = False
-                attacker_alley = []
-                target_alley = []
+                #The attacker can chose any agent on the grid
+                if land_combat == False:
+                    attacker_alley = []
+                    target_alley = []
 
-                for key, (row, col) in actors_pos.items():
-                    if topology[row][col] == 2:
-                        attacker_alley.append(key)
-                    elif topology[row][col] == 3:
-                        target_alley.append(key)
+                    for key, (row, col) in actors_pos.items():
+                        if topology[row][col] == 2:
+                            attacker_alley.append(key)
+                        elif topology[row][col] == 3:
+                            target_alley.append(key)
+                #The attacker can only attack if there is a path to connnect with a target  
+                elif land_combat == True:
+                    attacker_alley = pth.group(attacker, topology, 2, actors_pos)
+                    target_neighbors = pth.vicinal(actors_pos,i, L)
 
-                attacker_resources = resources(attacker, attacker_alley, M, capital)
-                target_resources = resources(i, target_alley, M, capital)
+                    if not any(item in target_neighbors for item in attacker_alley):
+                        continue
 
-                susceptibility_target = vulnerability(attacker_resources, target_resources) * min_pay(capital[i])
-                if susceptibility_target > current_status.susceptibility:
-                    current_status = Status(i, target_alley, target_resources, attacker_alley, attacker_resources,
-                                            susceptibility_target)
-                 """                           
-                #else if land_combat = True
-                attacker_alley = pth.group(attacker, topology, 2, actors_pos)
-                target_neighbors = pth.vicinal(actors_pos,i, L)
-
-                if not any(item in target_neighbors for item in attacker_alley):
-                    continue
-
-                target_alley = pth.group(i, topology, 3, actors_pos)
-
+                    target_alley = pth.group(i, topology, 3, actors_pos)
+                
                 attacker_resources = resources(attacker, attacker_alley, M, capital)
                 target_resources = resources(i, target_alley, M, capital)
 
@@ -375,10 +368,10 @@ class Simulation:
             return 0, tau, alpha, 0, 0, attacker, prospect.target
 
 
-    def run_simulation(self):
+    def run_simulation(self, land_combat = True):
         for _ in range(self.years):
             for _ in range(self.N // 3):
-                status, tau, alpha, t_loss, a_loss, active, target = self.simulate_activation()
+                status, tau, alpha, t_loss, a_loss, active, target = self.simulate_activation(land_combat)
                 resources = {k: round(v, 3) for k, v in self.capital.items()}
                 iteration_data = {
                     **resources,
