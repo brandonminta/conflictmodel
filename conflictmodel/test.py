@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import random
 import path_search as pth
-import h5py
 import os
 import argparse
 from tqdm import tqdm 
@@ -292,9 +291,13 @@ class Simulation:
                 self.attacker_resources = attacker_resources
                 self.susceptibility = susceptibility
 
-        def candidates_2d(attacker, capital, M, grid, actors_pos):
+        def candidates_2d(attacker, capital_old, M, grid, actors_pos_old):
             current_status = Status(np.nan, np.nan, np.nan, np.nan, np.nan, 0)
             L = grid.shape[0]
+            
+            #Remove actors with no resources
+            capital = {k: v for k, v in capital_old.items() if v > 0}
+            actors_pos = {k: actors_pos_old[k] for k in capital}
 
             for i in range(len(self.actors_pos)):
                 if i == attacker:

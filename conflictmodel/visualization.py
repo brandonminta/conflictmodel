@@ -54,3 +54,113 @@ def plot_grid(grid):
 
     # Display the plot
     plt.show()
+
+def distibution_plot(x,y, style, N, cycle, log_value = True, ccdf = False):
+    plt.figure(figsize=(25, 10), facecolor='white')  # Adjust the values (width, height) as desired
+
+    if ccdf == True:
+        cdf = np.cumsum(y)
+        ccdf_value = 1 - cdf
+        y = ccdf_value
+            # Plot the probability distribution on a log-log scale
+        if log_value == True:
+            plt.loglog(x, y, marker='o', linestyle='', color='blue')    
+        else: 
+            plt.plot(x, y, marker='o', linestyle='', color='blue')
+        if style == 'd':
+            plt.xlabel(r"Participants - $\tau$", fontsize=25)
+            plt.ylabel(r"Probability $P(\tau)$", fontsize=25)
+            plt.title("Complementary Cumulative Distribution Function (CCDF) Defence coalition Size", fontsize=25)
+        elif style == 'a':
+            plt.xlabel(r"Participants - $\alpha$", fontsize=25)
+            plt.ylabel(r"Probability $P(\alpha)$", fontsize=25)
+            plt.title("Complementary Cumulative Distribution Function (CCDF)Attacking coalition Size", fontsize=25)
+        elif style == 't':
+            plt.xlabel(r"Participants - $x$", fontsize=25)
+            plt.ylabel(r"Probability $P(x)$", fontsize=25)
+            plt.title("Complementary Cumulative Distribution Function (CCDF) Conflict Size", fontsize=25)
+        elif style =='p':
+                # Set the labels and title of the plot
+            plt.xlabel("Peace Intervals", fontsize=25)
+            plt.ylabel("Probability Frequency", fontsize=25)
+            plt.title("Complementary Cumulative Distribution Function (CCDF) Peace Intervals", fontsize=25)
+    # Plot the probability distribution on a log-log scale
+    
+    elif ccdf == False:
+        if log_value == True:
+            plt.loglog(x, y, marker='o', linestyle='', color='blue')    
+        else: 
+            plt.plot(x, y, marker='o', linestyle='', color='blue')
+
+        # # Perform log-log transformation
+        # log_sorted_values = np.log(sorted_values)
+        # log_prob_distribution = np.log(prob_distribution)
+
+        # # Perform linear regression to estimate the slope
+        # slope, intercept, r_value, p_value, std_err = linregress(log_sorted_values, log_prob_distribution)
+
+        # # Create the line that represents the best fit
+        # line = slope * log_sorted_values + intercept
+
+        # Plot the line on the log-log plot
+        #plt.loglog(sorted_values, np.exp(line), color='red', label=f'Slope: {slope:.2f}')
+
+        # Increase the font size of the axis labels and tick labels
+        if style == 'd':
+            plt.xlabel(r"Participants - $\tau$", fontsize=25)
+            plt.ylabel(r"Probability $P(\tau)$", fontsize=25)
+            plt.title("Probability Distribution - Defence coalition Size", fontsize=25)
+        elif style == 'a':
+            plt.xlabel(r"Participants - $\alpha$", fontsize=25)
+            plt.ylabel(r"Probability $P(\alpha)$", fontsize=25)
+            plt.title("Probability Distribution - Attacking coalition Size", fontsize=25)
+        elif style == 't':
+            plt.xlabel(r"Participants - $x$", fontsize=25)
+            plt.ylabel(r"Probability $P(x)$", fontsize=25)
+            plt.title("Probability Distribution - Conflict Size", fontsize=25)
+        elif style =='p':
+                # Set the labels and title of the plot
+            plt.xlabel("Peace Intervals", fontsize=25)
+            plt.ylabel("Probability Frequency", fontsize=25)
+            plt.title("Probability Frequency of Peace Intervals", fontsize=25)
+
+    # Add parameter information as a text annotation
+    params_info = f"N: {N}\nλ: {N//cycle}"
+    plt.text(0.5, 0.95, params_info, fontsize=18, transform=plt.gca().transAxes,
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', edgecolor='gray', alpha=0.8))
+
+
+    # Increase the font size of the tick labels
+    plt.xticks(fontsize=18)
+    plt.yticks(fontsize=19)
+
+    plt.legend(fontsize=24)
+
+    plt.grid(True)
+    plt.show()
+    
+def bi_plot(x,y1,y2):
+    fig, ax1 = plt.subplots(figsize=(27, 10), facecolor='white')
+    ax2 = ax1.twinx()
+
+    ax1.set_ylabel("Activity", fontsize=30)
+    ax2.set_ylabel("Total Resources", fontsize=30)
+    ax1.set_xlabel("Year", fontsize=30)
+
+    ax1.tick_params(axis='both', labelsize=21)
+    ax2.tick_params(axis='both', labelsize=21)
+
+    ax1.plot(x, y1, linestyle=" ", marker="+", color="#FF4C4C", label='Activity')
+    ax2.plot(x, y2, linestyle="--", color="#0055FF", label='Total Resources')
+
+    # Create the legend
+    ax1.legend(loc='upper left', fontsize=16)
+    ax2.legend(loc='upper right', fontsize=16)
+
+    # Add parameter information as a text annotation
+    params_info = f"N: {N}\nλ: {N//3}"
+    plt.text(0.5, 0.95, params_info, transform=fig.transFigure, fontsize=21, ha='center')
+
+    plt.grid(True)
+    plt.show()
+    plt.close()
