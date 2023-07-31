@@ -154,13 +154,11 @@ def groups_matrix(matrix, grid, indices, attacker,  target, capital) :
         
     """
     topology =  np.copy(grid)
-    for j in range(len(indices)):
-        if not (capital[j] > 1e-9):
-            continue 
-        row, col = indices[j]
-        if (matrix[j][attacker] > matrix[j][target]) and (abs(matrix[j][attacker] - matrix[j][target]) > 1e-9):
+    for key in indices.keys():
+        row, col = indices[key]
+        if (matrix[key][attacker] > matrix[key][target]) and (abs(matrix[key][attacker] - matrix[key][target]) > 1e-9):
             topology[row][col] = 2               #attackers
-        elif (matrix[j][attacker] < matrix[j][target]) and (abs(matrix[j][attacker] - matrix[j][target]) > 1e-9):
+        elif (matrix[key][attacker] < matrix[key][target]) and (abs(matrix[key][attacker] - matrix[key][target]) > 1e-9):
             topology[row][col] = 3               #defenders
             
     row_a, col_a = indices[attacker]
@@ -296,13 +294,13 @@ class Simulation:
             L = grid.shape[0]
             
             #Remove actors with no resources
-            capital = {k: v for k, v in capital_old.items() if v > 0}
+            capital = {k: v for k, v in capital_old.items() if v > 1e-9}
             actors_pos = {k: actors_pos_old[k] for k in capital}
 
-            for i in range(len(self.actors_pos)):
-                if i == attacker:
+            for key in actors_pos.keys():
+                if key == attacker:
                     continue
-                topology = groups_matrix(M, grid, actors_pos, attacker, i, capital)
+                topology = groups_matrix(M, grid, actors_pos, attacker, key, capital)
                 #The attacker can chose any agent on the grid
                 if land_combat == False:
                     attacker_alley = []
@@ -316,20 +314,20 @@ class Simulation:
                 #The attacker can only attack if there is a path to connnect with a target  
                 elif land_combat == True:
                     attacker_alley = pth.group(attacker, topology, 2, actors_pos)
-                    target_neighbors = pth.vicinal(actors_pos,i, L)
+                    target_neighbors = pth.vicinal(actors_pos,key, L)
 
                     if not any(item in target_neighbors for item in attacker_alley):
                         continue
 
-                    target_alley = pth.group(i, topology, 3, actors_pos)
+                    target_alley = pth.group(key, topology, 3, actors_pos)
                 
                 attacker_resources = resources(attacker, attacker_alley, M, capital)
-                target_resources = resources(i, target_alley, M, capital)
+                target_resources = resources(key, target_alley, M, capital)
 
-                susceptibility_target = vulnerability(attacker_resources, target_resources) * min_pay(capital[i])
+                susceptibility_target = vulnerability(attacker_resources, target_resources) * min_pay(capital[key])
                 if susceptibility_target > current_status.susceptibility:
-                    current_status = Status(i, target_alley, target_resources, attacker_alley, attacker_resources,
-                                            susceptibility_target)
+                    current_status = Status(key, target_alley, target_resources, attacker_alley, attacker_resources,
+                                            susceptibility_target) 
             return current_status
 
         def response(attacker, state, capital, M):
@@ -376,13 +374,16 @@ class Simulation:
 
 
         attacker = random.randrange(0, len(self.actors_pos))
-        prospect = candidates_2d(attacker, self.capital, self.M, self.grid, self.actors_pos)
-        tau, alpha = prospect.target_alley, prospect.attacker_alley
-        if prospect.susceptibility > 0:
-            decision, t_loss, a_loss = response(attacker, prospect, self.capital, self.M)
-            return decision, tau, alpha, t_loss, a_loss, attacker, prospect.target
+        if self.capital[attacker] > 1e-9:
+            prospect = candidates_2d(attacker, self.capital, self.M, self.grid, self.actors_pos)
+            tau, alpha = prospect.target_alley, prospect.attacker_alley
+            if prospect.susceptibility > 0:
+                decision, t_loss, a_loss = response(attacker, prospect, self.capital, self.M)
+                return decision, tau, alpha, t_loss, a_loss, attacker, prospect.target
+            else:
+                return 0, tau, alpha, 0, 0, attacker, prospect.target
         else:
-            return 0, tau, alpha, 0, 0, attacker, prospect.target
+            return 0, np.nan, np.nan, 0, 0, attacker, np.nan
 
     def run_simulation(self, land_combat=True, pbar = None):
         # Get the total number of iterations
@@ -442,7 +443,7 @@ if __name__ == "__main__":
     density = args.density
     land_combat = args.land_combat
     N = L * L - int(density * L * L)
-    total_iterations = numbers * (N // 3)
+    total_iterations = numbers * (N // cycle)
 
     simulation = Simulation(L, numbers, density)
     # Create the charging bar
