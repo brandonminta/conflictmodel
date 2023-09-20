@@ -101,6 +101,44 @@ def loss(r_i, r_j, contribution):
     """
     return k*r_i*(contribution)/r_j
 
+def response(attacker, state, target_alley, attacker_alley, capital, loyalty_mtx, tribute_mtx):
+    target = state[0]
+    w_def = state[1]
+    w_att = state[2]
+    
+    damage_by_attacker = min(k*w_att, w_def)   #can't cause more damage 
+    damage_by_defender = min(k*w_def, w_att)
+    loyalty = np.copy(loyalty_mtx[attacker][target])
+    if min(q,capital[target]) > (damage_by_attacker*capital[target]/w_def ):    #Consider only target's damage
+        for i in target_alley:
+            offering = loyalty_mtx[i][target] * capital[i]
+            contribution_loss = damage_by_attacker*offering/w_def
+            capital[i] -= round(contribution_loss,1)
+            for m in target_alley:
+                if 1. - c >= loyalty_mtx[i][m] >= 0.:
+                    loyalty_mtx[i][m] = loyalty_mtx[i][m] + c
+            for n in attacker_alley:
+                if 1. >= loyalty_mtx[i][n] >= c:
+                    loyalty_mtx[i][n] = loyalty_mtx[i][n] - c
+                    loyalty_mtx[n][i] = loyalty_mtx[n][i] - c
+
+        for j in attacker_alley:
+            offering = loyalty_mtx[j][attacker] * capital[j]
+            contribution_loss = damage_by_defender*offering/w_att
+            capital[j] -= round(contribution_loss,1) 
+            for l in attacker_alley:
+                if 1. - c >= loyalty_mtx[j][l] >= 0.:
+                    loyalty_mtx[j][l] = loyalty_mtx[j][l] + c
+        return 1, loyalty  # Conflict: True ; Loyalty between attacker and target
+    else:
+        money = round(min(q,capital[target]),1)
+        capital[target], capital[attacker] = capital[target] - money, capital[attacker] + money
+        tribute_mtx[target][attacker] += 1
+        if 1. - c >= loyalty_mtx[target][attacker] >= 0. :
+            loyalty_mtx[target][attacker] += c
+            loyalty_mtx[attacker][target] += c
+        return 0, loyalty   # Conflict: False ; Loyalty between attacker and target
+
 class GridGenerator:
     def __init__(self, L):
         """
@@ -181,45 +219,6 @@ class GridGenerator:
             # Update the origin to the neighbor cell
             origin = (neighbor_row, neighbor_col)
 
-def response(attacker, state, target_alley, attacker_alley, capital, loyalty_mtx, tribute_mtx):
-    target = state[0]
-    w_def = state[1]
-    w_att = state[2]
-    
-    damage_by_attacker = min(k*w_att, w_def)   #can't cause more damage 
-    damage_by_defender = min(k*w_def, w_att)
-    loyalty = np.copy(loyalty_mtx[attacker][target])
-    if min(q,capital[target]) > (damage_by_attacker*capital[target]/w_def ):    #Consider only target's damage
-        for i in target_alley:
-            offering = loyalty_mtx[i][target] * capital[i]
-            contribution_loss = damage_by_attacker*offering/w_def
-            capital[i] -= round(contribution_loss,1)
-            for m in target_alley:
-                if 1. - c >= loyalty_mtx[i][m] >= 0.:
-                    loyalty_mtx[i][m] = loyalty_mtx[i][m] + c
-            for n in attacker_alley:
-                if 1. >= loyalty_mtx[i][n] >= c:
-                    loyalty_mtx[i][n] = loyalty_mtx[i][n] - c
-                    loyalty_mtx[n][i] = loyalty_mtx[n][i] - c
-
-        for j in attacker_alley:
-            offering = loyalty_mtx[j][attacker] * capital[j]
-            contribution_loss = damage_by_defender*offering/w_att
-            capital[j] -= round(contribution_loss,1)
-
-            for l in attacker_alley:
-                if 1. - c >= loyalty_mtx[j][l] >= 0.:
-                    loyalty_mtx[j][l] = loyalty_mtx[j][l] + c
-        return 1, loyalty  # Conflict: True ; Loyalty between attacker and target
-    else:
-        money = round(min(q,capital[target]),1)
-        capital[target], capital[attacker] = capital[target] - money, capital[attacker] + money
-        tribute_mtx[target][attacker] += 1
-        if 1. - c >= loyalty_mtx[target][attacker] >= 0. :
-            loyalty_mtx[target][attacker] += c
-            loyalty_mtx[attacker][target] += c
-        return 0, loyalty   # Conflict: False ; Loyalty between attacker and target
-
 class Simulation:
     def __init__(self, L, years, density=None):
         self.L = L
@@ -232,10 +231,10 @@ class Simulation:
         self.capital = np.zeros(self.N + 2)                         # Wealth + W_a + W_d
         self.loyalty_mtx = np.identity(self.N, dtype=np.float64) 
         self.tribute_mtx = np.zeros((self.N, self.N), dtype=int)
-
+        
     def simulate_activation(self):
         attacker = random.randrange(0, self.N)
-        current_status, target_alley, attacker_alley  = finder.finding_candidates(attacker, self.capital, self.actors_pos, self.loyalty_mtx, self.grid)
+        current_status, attacker_alley,target_alley  = finder.finding_candidates(attacker, self.capital, self.actors_pos, self.loyalty_mtx, self.grid)
         if current_status[0] != -1:    #Target
             decision, loyalty = response(attacker, current_status, target_alley, attacker_alley, self.capital, self.loyalty_mtx, self.tribute_mtx)
             return decision, loyalty, target_alley, attacker_alley, attacker, current_status #Decision,loyalty,T alley, A alley, attecker, (target, wt,wa)
