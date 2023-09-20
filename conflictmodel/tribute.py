@@ -256,13 +256,15 @@ class Simulation:
         if pbar:
             pbar.reset(total=total_iterations)
         # Loop for each simulation run 
-        iterator, period = 1, 0
+        iterator, period = 1, period_steps -1
         for year in range(self.years):
-            if year == period:
+            if year == 0:
                 loyalty_list.append(np.copy(self.loyalty_mtx))
                 tribute_list.append(np.copy(self.tribute_mtx))
-                period += period_steps
-                
+            elif year == period:
+                loyalty_list.append(np.copy(self.loyalty_mtx))
+                tribute_list.append(np.copy(self.tribute_mtx))
+                period += period_steps               
             for k in range( self.N // demands):
                 decision, loyalty, target_alley, attacker_alley, attacker, current_status = self.simulate_activation()
                 selected_target, self.capital[-2:] = current_status[0], current_status[1:3]  # Assigning values from current_status
@@ -273,7 +275,9 @@ class Simulation:
                 iterator += 1
                 if pbar:
                     pbar.update(1)
-            self.capital[:-2] += r      
+            self.capital[:-2] += r
+        loyalty_list.append(np.copy(self.loyalty_mtx))
+        tribute_list.append(np.copy(self.tribute_mtx))
         return loyalty_list, tribute_list, wealth_matrix, info_matrix
 
 def run(rank, output_dir, L, years, density):
