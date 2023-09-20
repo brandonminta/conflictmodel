@@ -195,7 +195,7 @@ def group(agent, topography, value, positions):
         neighbors_filtered = temporal_neighbors
     return np.array(coalition_list, dtype=int)
     
-def finding_candidates(attacker,capital, actors_pos, loyalty_mtx, grid, land_combat = True ): 
+def finding_candidates(attacker,capital, actors_pos, loyalty_mtx, grid): 
     """
     This function filters the neighbors
     
@@ -230,26 +230,14 @@ def finding_candidates(attacker,capital, actors_pos, loyalty_mtx, grid, land_com
         if key == attacker:
             continue
         topology = groups_matrix(attacker, key, actors_pos, loyalty_mtx, grid)
-        #The attacker can chose any agent on the grid
-        if land_combat == False:   # Need to be fixed
-            attacker_alley = []
-            target_alley = []
-
-            for key, (row, col) in actors_pos.items():
-                row, col = actors_pos[i]
-                if topology[row][col] == 2:
-                    attacker_alley.append(key)
-                elif topology[row][col] == 3:
-                    target_alley.append(key)
         #The attacker can only attack if there is a path to connnect with a target  
-        elif land_combat == True:
-            attacker_alley = group(attacker, topology, 2, actors_pos)
-            target_neighbors = vicinal(key, L, actors_pos)
+        attacker_alley = group(attacker, topology, 2, actors_pos)
+        target_neighbors = vicinal(key, L, actors_pos)
 
-            if not any(item in target_neighbors for item in attacker_alley):
-                continue
+        if not any(item in target_neighbors for item in attacker_alley):
+            continue
 
-            target_alley = group(key, topology, 3, actors_pos)
+        target_alley = group(key, topology, 3, actors_pos)
 
         w_att = group_resources(attacker, attacker_alley, capital, loyalty_mtx)
         w_def = group_resources(key, target_alley, capital, loyalty_mtx)
