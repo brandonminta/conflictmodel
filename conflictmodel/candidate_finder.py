@@ -31,7 +31,7 @@ def group_resources(agent, coalition_arr, capital_arr, loyalty_mtx):
     """
     money = 0
     for i in coalition_arr:
-        money += loyalty_mtx[i][agent] * capital_arr[i]        
+        money += 0.1*loyalty_mtx[i][agent] * capital_arr[i]        
     return money   
 
 def vulnerability(r_i, r_j):
@@ -78,7 +78,7 @@ def groups_matrix(attacker, target, indices, loyalty_mtx, grid) :
     topology =  np.copy(grid)
     for key in range(len(indices)):
         row, col = indices[key]
-        if abs(loyalty_mtx[key][attacker] - loyalty_mtx[key][target]) > 1e-9 :    # Not equal loyalty
+        if loyalty_mtx[key][attacker] != loyalty_mtx[key][target] :    # Not equal loyalty
             if (loyalty_mtx[key][attacker] > loyalty_mtx[key][target]) :
                 topology[row][col] = 2               # attackers
             elif (loyalty_mtx[key][attacker] < loyalty_mtx[key][target]):

@@ -36,26 +36,26 @@ def parse_arguments():
     parser.add_argument("--r", type=int, default=20, help="Value of productivity/income")
     parser.add_argument("--q", type=int, default=250, help="Value of tribute")
     parser.add_argument('--ncpu', type=int, default=4, help='Number of processes')
+    parser.add_argument("--sampling", action="store_true", default=False, help="Enable sampling of tribute and loyalty for every run")
     parser.add_argument("--output_dir", required=True, help="Output directory")
     return parser.parse_args()
 #Constants     
 args =  parse_arguments()
-c = 0.1                         # commitment fluctuation 
+c = 10                          # commitment fluctuation 
 k = 0.25                        # Destructiveness 
 demands = 3                     # Demands per Year Cycle (1/3 of N)
-period_steps = 25               # Period for data collection
+period_steps = 10               # Period for data collection
 r = args.r                      # Production
 q = args.q                      # Tribute
 
 #Functions
-def saving_data(rank, output_dir, loyalty_list, tribute_list, wealth_matrix, info_matrix):
+def saving_data(rank, output_dir, loyalty_list, tribute_list, wealth_matrix, info_matrix, sampling = False):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     subdirectory_name = f"run_{rank}"  # Create the subdirectory name
     subdirectory_path = os.path.join(output_dir, subdirectory_name)
     # Create the subdirectory if it doesn't exist (with exist_ok=True, it won't raise an error if it already exists)
     os.makedirs(subdirectory_path, exist_ok=True)
-
     # Save data to HDF5 files
     with h5py.File(os.path.join(subdirectory_path, f"loyalty_output_{rank}.h5"), 'w') as hf:
         for i, array in enumerate(loyalty_list):
@@ -111,30 +111,30 @@ def response(attacker, state, target_alley, attacker_alley, capital, loyalty_mtx
     loyalty = np.copy(loyalty_mtx[attacker][target])
     if min(q,capital[target]) > (damage_by_attacker*capital[target]/w_def ):    #Consider only target's damage
         for i in target_alley:
-            offering = loyalty_mtx[i][target] * capital[i]
+            offering = 0.1*loyalty_mtx[i][target] * capital[i]
             contribution_loss = damage_by_attacker*offering/w_def
             capital[i] -= round(contribution_loss,1)
             for m in target_alley:
-                if 1. - c >= loyalty_mtx[i][m] >= 0.:
+                if 10 - c >= loyalty_mtx[i][m] >= 0:
                     loyalty_mtx[i][m] = loyalty_mtx[i][m] + c
             for n in attacker_alley:
-                if 1. >= loyalty_mtx[i][n] >= c:
+                if 10 >= loyalty_mtx[i][n] >= c:
                     loyalty_mtx[i][n] = loyalty_mtx[i][n] - c
                     loyalty_mtx[n][i] = loyalty_mtx[n][i] - c
 
         for j in attacker_alley:
-            offering = loyalty_mtx[j][attacker] * capital[j]
+            offering = 0.1*loyalty_mtx[j][attacker] * capital[j]
             contribution_loss = damage_by_defender*offering/w_att
             capital[j] -= round(contribution_loss,1) 
             for l in attacker_alley:
-                if 1. - c >= loyalty_mtx[j][l] >= 0.:
+                if 10 - c >= loyalty_mtx[j][l] >= 0:
                     loyalty_mtx[j][l] = loyalty_mtx[j][l] + c
         return 1, loyalty  # Conflict: True ; Loyalty between attacker and target
     else:
         money = round(min(q,capital[target]),1)
         capital[target], capital[attacker] = capital[target] - money, capital[attacker] + money
         tribute_mtx[target][attacker] += 1
-        if 1. - c >= loyalty_mtx[target][attacker] >= 0. :
+        if 10 - c >= loyalty_mtx[target][attacker] >= 0 :
             loyalty_mtx[target][attacker] += c
             loyalty_mtx[attacker][target] += c
         return 0, loyalty   # Conflict: False ; Loyalty between attacker and target
@@ -220,7 +220,9 @@ class GridGenerator:
             origin = (neighbor_row, neighbor_col)
 
 class Simulation:
-    def __init__(self, L, years, density=None):
+    def __init__(self, L, years, rank, sampling, density=None):
+        self.sampling = sampling
+        self.rank = rank
         self.L = L
         self.years = years                                          # Years to be run 
         self.density = density                                      # Density of obstacles
@@ -229,7 +231,7 @@ class Simulation:
         self.actors_pos = np.argwhere(self.grid == 0)               # Positions of actors in the grid
         self.N = len(self.actors_pos)
         self.capital = np.zeros(self.N + 2)                         # Wealth + W_a + W_d
-        self.loyalty_mtx = np.identity(self.N, dtype=np.float64) 
+        self.loyalty_mtx = np.identity(self.N, dtype= int) 
         self.tribute_mtx = np.zeros((self.N, self.N), dtype=int)
         
     def simulate_activation(self):
@@ -247,7 +249,6 @@ class Simulation:
         #Initialize the resources for each actor
         for i in range(self.N):
             self.capital[i] = round(random.randrange(300,500,1), 1)
-      
         loyalty_list, tribute_list = [], []  # Lists for periodic loyalty, tribute matrices, and groups formation
         wealth_matrix = np.zeros((total_iterations+1, self.N+2), dtype=np.float32)  # N + 2 columns: actors wealths and W_d, W_a  
         wealth_matrix[0] = self.capital
@@ -258,17 +259,18 @@ class Simulation:
         # Loop for each simulation run 
         iterator, period = 1, period_steps -1
         for year in range(self.years):
-            if year == 0:
-                loyalty_list.append(np.copy(self.loyalty_mtx))
-                tribute_list.append(np.copy(self.tribute_mtx))
-            elif year == period:
-                loyalty_list.append(np.copy(self.loyalty_mtx))
-                tribute_list.append(np.copy(self.tribute_mtx))
-                period += period_steps               
+            if self.rank == 1 or sampling:
+                if year == 0:
+                    loyalty_list.append(np.copy(self.loyalty_mtx))
+                    tribute_list.append(np.copy(self.tribute_mtx))
+                elif year == period:
+                    loyalty_list.append(np.copy(self.loyalty_mtx))
+                    tribute_list.append(np.copy(self.tribute_mtx))
+                    period += period_steps               
             for k in range( self.N // demands):
                 decision, loyalty, target_alley, attacker_alley, attacker, current_status = self.simulate_activation()
                 selected_target, self.capital[-2:] = current_status[0], current_status[1:3]  # Assigning values from current_status
-                info_matrix[iterator] = np.array([decision, int(loyalty*10), attacker, selected_target, len(target_alley), len(attacker_alley)])            
+                info_matrix[iterator] = np.array([decision, loyalty, attacker, selected_target, len(target_alley), len(attacker_alley)])            
                 #iteration_data = {'att': attacker_alley.tolist(), 'def': target_alley.tolist()}
                 #groups_list.append(iteration_data)
                 wealth_matrix[iterator] = self.capital
@@ -280,8 +282,8 @@ class Simulation:
         tribute_list.append(np.copy(self.tribute_mtx))
         return loyalty_list, tribute_list, wealth_matrix, info_matrix
 
-def run(rank, output_dir, L, years, density):
-    simulation = Simulation(L, years, density)
+def run(rank, output_dir, L, years, density, sampling):
+    simulation = Simulation(L, years, rank, sampling, density)
     with tqdm(total=total_iterations, desc="Simulation Progress", unit="iteration") as pbar:
         loyalty_list, tribute_list, wealth_matrix, info_matrix = simulation.run_simulation(pbar=pbar) 
         saving_data(rank, output_dir, loyalty_list, tribute_list, wealth_matrix, info_matrix)
@@ -293,6 +295,7 @@ if __name__ == "__main__":
     density = args.density
     output_dir = args.output_dir
     ncpu = args.ncpu
+    sampling = args.sampling
     
     N = L * L - int(density * L * L)
     total_iterations = years * (N // demands)
@@ -302,7 +305,7 @@ if __name__ == "__main__":
     # Call Pool
     pool = mp.Pool(processes=ncpu)
     # Create a list of tuples containing all combinations of XM and B values
-    parameters = [(rank, output_dir,L, years, density) for rank in range(1,ncpu+1)]
+    parameters = [(rank, output_dir,L, years, density, sampling) for rank in range(1,ncpu+1)]
     # Call run for all parameter tuples using pool.map
     pool.starmap(run, parameters)
     # Close the pool
