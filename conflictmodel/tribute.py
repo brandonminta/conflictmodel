@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-
-
 # Created on January - 2023
 # @author: Brandon Minta
 # -------------------------------------------------------------------------
@@ -11,47 +9,38 @@
 # --------------------------------------------------------------------------
 
 import argparse
-import csv
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import math
 import h5py
 from tqdm import tqdm
 import multiprocessing as mp
+import networkx as nx
 
 import random
-import candidate_finder as finder
-
-#seed_value = 42
-#random.seed(seed_value)
-#np.random.seed(seed_value)
-
+# --------------------------------------------------------------------------
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Run the simulation script.')
-    parser.add_argument('-L', type=int, default=5, help='Value for L')
+    parser.add_argument('-N', type=int, default=100, help='Number of actors')
     parser.add_argument('--years', type=int, default=1000, help='Number of iterations')
-    parser.add_argument('--density', type=float, default=0.0, help='Density value')
     parser.add_argument("--r", type=int, default=20, help="Value of productivity/income")
     parser.add_argument("--q", type=int, default=250, help="Value of tribute")
+    parser.add_argument("--network_type", choices=["watts_strogatz", "grid_2d"], default="grid_2d", help="Type of network")
     parser.add_argument('--ncpu', type=int, default=4, help='Number of processes')
-    parser.add_argument("--sampling", action="store_true", default=False, help="Enable sampling of tribute and loyalty for every run")
     parser.add_argument("--output_dir", required=True, help="Output directory")
     return parser.parse_args()
 #Constants     
 args =  parse_arguments()
-c = 10                          # commitment fluctuation 
+c = 1                           # commitment fluctuation 
 k = 0.25                        # Destructiveness 
 demands = 3                     # Demands per Year Cycle (1/3 of N)
 period_steps = 10               # Period for data collection
-r = args.r                      # Production
+r = args.r                      # harvest
 q = args.q                      # Tribute
 
-#Functions
-def saving_data(rank, output_dir, loyalty_list, tribute_list, wealth_matrix, info_matrix, sampling = False):
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+# Functions --------------------------------------------------------------------------
+def saving_data(rank, output_dir, loyalty_list, tribute_list, data_matrix):
     subdirectory_name = f"run_{rank}"  # Create the subdirectory name
     subdirectory_path = os.path.join(output_dir, subdirectory_name)
     # Create the subdirectory if it doesn't exist (with exist_ok=True, it won't raise an error if it already exists)
@@ -59,57 +48,157 @@ def saving_data(rank, output_dir, loyalty_list, tribute_list, wealth_matrix, inf
     # Save data to HDF5 files
     with h5py.File(os.path.join(subdirectory_path, f"loyalty_output_{rank}.h5"), 'w') as hf:
         for i, array in enumerate(loyalty_list):
-            hf.create_dataset(f'loyalty_matrix_{i}', data=array)
+            hf.create_dataset(f'loyalty_matrix_{i}', data = array)
 
     with h5py.File(os.path.join(subdirectory_path, f"tribute_output_{rank}.h5"), 'w') as hf:
         for i, array in enumerate(tribute_list):
-            hf.create_dataset(f'tribute_matrix_{i}', data=array)
+            hf.create_dataset(f'tribute_matrix_{i}', data = array)
 
-    with h5py.File(os.path.join(subdirectory_path, f"wealth_output_{rank}.h5"), 'w') as hf:
-        hf.create_dataset('wealth', data=wealth_matrix)
+    with h5py.File(os.path.join(subdirectory_path, f"simulation_output_{rank}.h5"), 'w') as hf:
+        hf.create_dataset('simulation_data', data = data_matrix)
 
-    with h5py.File(os.path.join(subdirectory_path, f"states_output_{rank}.h5"), 'w') as hf:
-        hf.create_dataset('info', data=info_matrix)
-
-    # Save data to CSV file
-    #if groups_list != None:
-    #    with open(os.path.join(subdirectory_path, f"groups_output_${rank}.csv"), 'w', newline='') as csvfile:
-    #        fieldnames = ['iteration', 'att', 'def']
-    #        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    #        writer.writeheader()
-    #        for i, iteration_data in enumerate(groups_list):
-    #            writer.writerow({'iteration': i+1, 'att': iteration_data['att'], 'def': iteration_data['def']})
-   
-def loss(r_i, r_j, contribution):         
+def create_graph(num_nodes, graph_type='grid', **kwargs):
     """
-    The function calculates agent j's loss of resources, caused by conflict with i
+    Create and return a NetworkX graph based on the specified number of nodes and graph type.
+    
+    Parameters:
+    num_nodes (int): Number of nodes in the graph.
+    graph_type (str): Type of graph ('grid', 'scale_free', or 'watts_strogatz').
+    **kwargs: Additional keyword arguments specific to the chosen graph type.
+    
+    Returns:
+    nx.Graph: NetworkX graph based on the specified parameters.
+    """
+    if graph_type == 'grid_2d':
+        factors = []
+        for i in range(1, int(math.sqrt(num_nodes)) + 1):
+            if num_nodes % i == 0:
+                factors.append((i, num_nodes // i))
+        m, n = min(factors, key=lambda x: abs(x[0] - x[1]))
+        G = nx.grid_2d_graph(m, n, periodic=True)
+        mapping = {(i, j): i * n + j for i in range(m) for j in range(n)}
+        G = nx.relabel_nodes(G, mapping)
+    elif graph_type == 'watts_strogatz':
+        k = kwargs.get('k', 4)  # Default value for k is set to 4
+        p = kwargs.get('p', 0.1)  # Default value for p is set to 0.1
+        G = nx.watts_strogatz_graph(num_nodes, k, p)
+    return G
+     
+def loss(coAWealth, coBWealth, contribution):         
+    """
+    The function calculates loss of resources from an actor of coalition B, caused by conflict with coalition A
+    """
+    return k*coAWealth*(contribution)/coBWealth
+
+def vulnerability(r_i, r_j):
+    """
+    The function computes the vulnerability of agent j with respect to agent i
+    """
+    return (r_i - r_j) / r_i if r_i > 0 and r_j > 0 else 0
+
+def group_resources(agent, coalition_arr, capital_arr, loyalty_mtx):                                                                                   
+    """
+    The function calculates the total resources of a coalition
     
     Parameters
     -----------
-    r_i: float
-        Resources of i's coalition  
-    r_j: float
-        Resources of j's coalition  
-    contribution: float
-        j's contribution of resources to the coalition
-        
+    agent: int
+        The group leader
+    coalition_arr: array
+        Coalition 
+    capital_arr: array
+        Capital of each member
+    loyalty_mtx: array
+        Commitment matrix
+    
     return
-    -------
-    float:
-        Resources loss of j member of it's coalition
+    ------
+    money: float
+        The total resources of the coalition
         
     """
-    return k*r_i*(contribution)/r_j
+    money = 0
+    for i in coalition_arr:
+        money += 0.1*loyalty_mtx[i][agent] * capital_arr[i]        
+    return money  
 
-def response(attacker, state, target_alley, attacker_alley, capital, loyalty_mtx, tribute_mtx):
-    target = state[0]
-    w_def = state[1]
-    w_att = state[2]
-    
+def candidate_connection(G,loyalty_mtx, attacker, target):
+    # Create a subgraph of to remove nodes
+    H = G.copy()
+    nodes_to_isolate = []
+    for node in range(len(loyalty_mtx)):
+        conditionA = loyalty_mtx[node, attacker]
+        conditionB = loyalty_mtx[node, target] 
+        if (conditionA <= conditionB ) and node not in [attacker, target]:
+            nodes_to_isolate.append(node)
+    H.remove_nodes_from(nodes_to_isolate)
+    #Check if there is a path between nodes
+    return nx.has_path(H, attacker, target)
+
+def group(G, a, b, loyalty_mtx):
+    # Create an initial grouping where each node is its own group
+    group_a = {node for node in G.nodes() if (loyalty_mtx[node, a] > loyalty_mtx[node, b] and node != b) or (node == a)}
+    subgraph = G.subgraph(group_a) 
+    coalition = list(nx.descendants(subgraph, a))+ [a]
+    return np.array(coalition, dtype=int)  
+
+def candidate_exposure(G, attacker, target, capital, loyalty_mtx):
+    attacker_alley = group(G, attacker, target , loyalty_mtx)
+    target_alley = group(G, target, attacker, loyalty_mtx)
+    w_att = group_resources(attacker, attacker_alley, capital, loyalty_mtx)
+    w_def = group_resources(target, target_alley, capital, loyalty_mtx)
+    susceptibility = vulnerability(w_att, w_def) * min(q,capital[target])
+    return susceptibility, attacker_alley, target_alley, w_att, w_def
+
+def candidate_selection(G,loyalty_mtx, attacker, capital):
+    neighbors_attacker = list(G.neighbors(attacker))  
+    susceptibility, attacker_alley, target_alley, w_att, w_def = candidate_exposure(G, attacker, neighbors_attacker[0], capital, loyalty_mtx)
+    optimal = {
+    "susceptibility": susceptibility,
+    "attacker_alley": attacker_alley,
+    "target_alley": target_alley,
+    "w_att": w_att,
+    "w_def": w_def,
+    "attacker": attacker,
+    "target": neighbors_attacker[0]}
+    for target in neighbors_attacker[1:]:
+        if capital[target] < 0.1:
+            continue
+        susceptibility, attacker_alley, target_alley, w_att, w_def = candidate_exposure(G, attacker, target, capital, loyalty_mtx)
+        if susceptibility > optimal["susceptibility"]:
+            optimal["susceptibility"] = susceptibility
+            optimal["attacker_alley"] = attacker_alley
+            optimal["target_alley"] = target_alley
+            optimal["w_att"] = w_att
+            optimal["w_def"] = w_def 
+            optimal["target"] = target          
+    for target in [node for node in range(len(loyalty_mtx)) if node not in neighbors_attacker and node != attacker]:
+        if capital[target] < 0.1:
+            continue
+        neighbors_target = list(G.neighbors(target))        
+        if all(loyalty_mtx[node][attacker] <= loyalty_mtx[node][target] for node in neighbors_target):
+            continue
+        susceptibility, attacker_alley, target_alley, w_att, w_def = candidate_exposure(G, attacker, target, capital, loyalty_mtx)
+        if susceptibility > optimal["susceptibility"]:
+            optimal["susceptibility"] = susceptibility
+            optimal["attacker_alley"] = attacker_alley
+            optimal["target_alley"] = target_alley
+            optimal["w_att"] = w_att
+            optimal["w_def"] = w_def 
+            optimal["target"] = target  
+    return optimal
+
+def response(optimal, capital, loyalty_mtx, tribute_mtx):
+    attacker = optimal["attacker"]
+    target = optimal["target"]
+    w_def = optimal["w_def"]
+    w_att = optimal["w_att"]
+    target_alley = optimal["target_alley"] 
+    attacker_alley = optimal["attacker_alley"]     
     damage_by_attacker = min(k*w_att, w_def)   #can't cause more damage 
     damage_by_defender = min(k*w_def, w_att)
     loyalty = np.copy(loyalty_mtx[attacker][target])
-    if min(q,capital[target]) > (damage_by_attacker*capital[target]/w_def ):    #Consider only target's damage
+    if min(q,capital[target]) > (damage_by_attacker*capital[target]/w_def):    #Consider only target's damage
         for i in target_alley:
             offering = 0.1*loyalty_mtx[i][target] * capital[i]
             contribution_loss = damage_by_attacker*offering/w_def
@@ -139,109 +228,25 @@ def response(attacker, state, target_alley, attacker_alley, capital, loyalty_mtx
             loyalty_mtx[attacker][target] += c
         return 0, loyalty   # Conflict: False ; Loyalty between attacker and target
 
-class GridGenerator:
-    def __init__(self, L):
-        """
-        Initialize the AccessibilityGrid class.
-
-        Parameters
-        ----------
-        L: int
-            Size of the topological grid.
-        """
-        self.L = L
-        self.grid = np.zeros((L, L), dtype=int)
-
-    def generate_grid(self, density=None):
-        """
-        Generate an array with a connected grid of valid elements (0's)
-        surrounded by inaccessible elements (1's) using a specified density of obstacles.
-
-        Parameters
-        ----------
-        density: float (optional)
-            Density of obstacles on the topological grid.
-
-        Returns
-        -------
-        topology: array LxL
-            Grid with connected valid elements (0's) and inaccessible elements (1's).
-        """
-        if density is None:
-            return self.grid
-        
-        self.grid = np.ones((self.L, self.L), dtype=int)
-        num_obstacles = int(density * self.L * self.L)
-        valid_elements = self.L * self.L - num_obstacles
-
-        # Select a random cell as the origin for expanding valid elements
-        origin = np.random.randint(self.L), np.random.randint(self.L)
-
-        # Expand valid elements from the origin
-        self._expand_valid_elements(origin, valid_elements)
-
-        return self.grid
-
-    def _expand_valid_elements(self, origin, valid_elements):
-        """
-        Expand valid elements (0's) from the given origin in the grid until reaching the specified count
-        using a Monte Carlo method.
-
-        Parameters
-        ----------
-        origin: tuple
-            Coordinates (row, col) of the origin cell.
-        valid_elements: int
-            Number of valid elements (0's) to reach.
-
-        Returns
-        -------
-        int
-            Number of valid elements added.
-        """
-        count = 0
-
-        while count < valid_elements:
-            # Randomly select a neighbor cell
-            neighbors = [
-                [(origin[0] - 1) % self.L, origin[1]],    # Up
-                [(origin[0] + 1) % self.L, origin[1]],    # Down
-                [origin[0], (origin[1] - 1) % self.L],    # Left
-                [origin[0], (origin[1] + 1) % self.L]     # Right
-            ]
-            neighbor_row, neighbor_col = neighbors[np.random.randint(4)]
-
-            if self.grid[neighbor_row, neighbor_col] == 1:
-                # Add the neighbor cell as a valid element
-                self.grid[neighbor_row, neighbor_col] = 0
-                count += 1
-
-            # Update the origin to the neighbor cell
-            origin = (neighbor_row, neighbor_col)
-
+# Simulation --------------------------------------------------------------------------
 class Simulation:
-    def __init__(self, L, years, rank, sampling, density=None):
-        self.sampling = sampling
+    def __init__(self, N, years, G, rank):
         self.rank = rank
-        self.L = L
-        self.years = years                                          # Years to be run 
-        self.density = density                                      # Density of obstacles
-        access_grid = GridGenerator(self.L)
-        self.grid = access_grid.generate_grid(self.density)         # Actors Distribution in the grid
-        self.actors_pos = np.argwhere(self.grid == 0)               # Positions of actors in the grid
-        self.N = len(self.actors_pos)
-        self.capital = np.zeros(self.N + 2)                         # Wealth + W_a + W_d
+        self.N = N                                              # Number of actors
+        self.years = years                                      # Years 
+        self.G = G                                              # Network
+        self.capital = np.zeros(self.N)                         # Wealth 
         self.loyalty_mtx = np.identity(self.N, dtype= int) 
         self.tribute_mtx = np.zeros((self.N, self.N), dtype=int)
         
     def simulate_activation(self):
         attacker = random.randrange(0, self.N)
-        current_status, attacker_alley,target_alley  = finder.finding_candidates(attacker, self.capital, self.actors_pos, self.loyalty_mtx, self.grid)
-        if current_status[0] != -1:    #Target
-            decision, loyalty = response(attacker, current_status, target_alley, attacker_alley, self.capital, self.loyalty_mtx, self.tribute_mtx)
-            return decision, loyalty, target_alley, attacker_alley, attacker, current_status #Decision,loyalty,T alley, A alley, attecker, (target, wt,wa)
+        optimal = candidate_selection(self.G, self.loyalty_mtx, attacker, self.capital)
+        if optimal["susceptibility"] > 0:    #Target
+            decision, loyalty = response(optimal, self.capital, self.loyalty_mtx, self.tribute_mtx)
+            return decision, loyalty, optimal 
         else:         
-            return -1, -1, target_alley, attacker_alley, attacker, current_status,      #1 conflict, 0 tribute, -1 not capable 
+            return None, None, optimal      
 
     def run_simulation(self, pbar = None):  
         #Get the total number of iterations
@@ -249,17 +254,16 @@ class Simulation:
         #Initialize the resources for each actor
         for i in range(self.N):
             self.capital[i] = round(random.randrange(300,500,1), 1)
-        loyalty_list, tribute_list = [], []  # Lists for periodic loyalty, tribute matrices, and groups formation
-        wealth_matrix = np.zeros((total_iterations+1, self.N+2), dtype=np.float32)  # N + 2 columns: actors wealths and W_d, W_a  
-        wealth_matrix[0] = self.capital
-        info_matrix = np.zeros((total_iterations+1, 6), dtype=int)  # 5 columns: decision, loyalty*10, att, def, size_coal_a, size_coal_t
+        loyalty_list, tribute_list = [], []  # Lists for periodic loyalty, tribute matrices
+        data_matrix = np.zeros((total_iterations+1, self.N + 8), dtype=np.float32)  
+        data_matrix[0,8:] = self.capital
         #Create the charging bar if pbar is provided
         if pbar:
             pbar.reset(total=total_iterations)
         # Loop for each simulation run 
         iterator, period = 1, period_steps -1
         for year in range(self.years):
-            if self.rank == 1 or sampling:
+            if self.rank == 1:
                 if year == 0:
                     loyalty_list.append(np.copy(self.loyalty_mtx))
                     tribute_list.append(np.copy(self.tribute_mtx))
@@ -268,45 +272,50 @@ class Simulation:
                     tribute_list.append(np.copy(self.tribute_mtx))
                     period += period_steps               
             for k in range( self.N // demands):
-                decision, loyalty, target_alley, attacker_alley, attacker, current_status = self.simulate_activation()
-                selected_target, self.capital[-2:] = current_status[0], current_status[1:3]  # Assigning values from current_status
-                info_matrix[iterator] = np.array([decision, loyalty, attacker, selected_target, len(target_alley), len(attacker_alley)])            
-                #iteration_data = {'att': attacker_alley.tolist(), 'def': target_alley.tolist()}
-                #groups_list.append(iteration_data)
-                wealth_matrix[iterator] = self.capital
+                decision, loyalty, optimal = self.simulate_activation()
+                if decision is not None:
+                    info = np.array([decision, optimal["attacker"], optimal["target"], loyalty, 
+                            len(optimal["target_alley"] ), len(optimal["attacker_alley"]), optimal["w_def"], optimal["w_att"] ])
+                else:
+                    info = np.full(8, None)
+                data_matrix[iterator,:8], data_matrix[iterator,8:] = info, self.capital
                 iterator += 1
                 if pbar:
                     pbar.update(1)
-            self.capital[:-2] += r
+            self.capital += r
         loyalty_list.append(np.copy(self.loyalty_mtx))
         tribute_list.append(np.copy(self.tribute_mtx))
-        return loyalty_list, tribute_list, wealth_matrix, info_matrix
+        return loyalty_list, tribute_list, data_matrix
 
-def run(rank, output_dir, L, years, density, sampling):
-    simulation = Simulation(L, years, rank, sampling, density)
+def run(rank, output_dir, N, years, G):
+    simulation = Simulation(N, years, G, rank)
     with tqdm(total=total_iterations, desc="Simulation Progress", unit="iteration") as pbar:
-        loyalty_list, tribute_list, wealth_matrix, info_matrix = simulation.run_simulation(pbar=pbar) 
-        saving_data(rank, output_dir, loyalty_list, tribute_list, wealth_matrix, info_matrix)
+        loyalty_list, tribute_list, data_matrix = simulation.run_simulation(pbar=pbar) 
+        saving_data(rank, output_dir, loyalty_list, tribute_list, data_matrix)
     
 if __name__ == "__main__":
     args = parse_arguments()
-    L = args.L
+    N = args.N
     years = args.years
-    density = args.density
+    network_type = args.network_type
     output_dir = args.output_dir
     ncpu = args.ncpu
-    sampling = args.sampling
     
-    N = L * L - int(density * L * L)
+    network = create_graph(N, graph_type = network_type)
     total_iterations = years * (N // demands)
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
     
     # Get number of laptop CPUs
     n_cpu = mp.cpu_count()
     # Call Pool
     pool = mp.Pool(processes=ncpu)
     # Create a list of tuples containing all combinations of XM and B values
-    parameters = [(rank, output_dir,L, years, density, sampling) for rank in range(1,ncpu+1)]
+    parameters = [(rank, output_dir, N, years, network) for rank in range(1,ncpu+1)]
     # Call run for all parameter tuples using pool.map
     pool.starmap(run, parameters)
     # Close the pool
     pool.close()
+    
+    
+    
