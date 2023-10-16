@@ -236,7 +236,7 @@ class Simulation:
         self.years = years                                      # Years 
         self.G = G                                              # Network
         self.capital = np.zeros(self.N)                         # Wealth 
-        self.loyalty_mtx = np.identity(self.N, dtype= int) 
+        self.loyalty_mtx = np.identity(self.N, dtype= int)*10 
         self.tribute_mtx = np.zeros((self.N, self.N), dtype=int)
         
     def simulate_activation(self):
