@@ -38,7 +38,7 @@ r = 20                          # harvest
 q = 250                         # Tribute
 
 # Functions --------------------------------------------------------------------------
-def saving_data(rank, output_dir, loyalty_list, tribute_list, data_matrix):
+def saving_data(rank, output_dir, loyalty_list, data_matrix):
     subdirectory_name = f"run_{rank}"  # Create the subdirectory name
     subdirectory_path = os.path.join(output_dir, subdirectory_name)
     # Create the subdirectory if it doesn't exist (with exist_ok=True, it won't raise an error if it already exists)
@@ -47,10 +47,6 @@ def saving_data(rank, output_dir, loyalty_list, tribute_list, data_matrix):
     with h5py.File(os.path.join(subdirectory_path, f"loyalty_output_{rank}.h5"), 'w') as hf:
         for i, array in enumerate(loyalty_list):
             hf.create_dataset(f'loyalty_matrix_{i}', data = array)
-
-    with h5py.File(os.path.join(subdirectory_path, f"tribute_output_{rank}.h5"), 'w') as hf:
-        for i, array in enumerate(tribute_list):
-            hf.create_dataset(f'tribute_matrix_{i}', data = array)
 
     with h5py.File(os.path.join(subdirectory_path, f"simulation_output_{rank}.h5"), 'w') as hf:
         hf.create_dataset('simulation_data', data = data_matrix)
@@ -130,12 +126,11 @@ def candidate_connection(G,loyalty_mtx, attacker, target):
     """
     # Create a subgraph to remove nodes
     H = G.copy()
-    nodes_to_isolate = []
+    nodes_to_isolate = []  #node more committed with target
     for node in range(len(loyalty_mtx)):
         conditionA = loyalty_mtx[node, attacker]
         conditionB = loyalty_mtx[node, target] 
         if (conditionA <= conditionB ) and node not in [attacker, target]:
-        #if (conditionA <= conditionB or  conditionA < 5) and node not in [attacker, target]:  #
             nodes_to_isolate.append(node)
     H.remove_nodes_from(nodes_to_isolate)
     #Check if there is a path between nodes
@@ -151,7 +146,6 @@ def group(G, a, b, loyalty_mtx):
     """
     # Create an initial grouping where each node is its own group
     group_a = {node for node in G.nodes() if (loyalty_mtx[node, a] > loyalty_mtx[node, b] and node != b) or (node == a)}
-    #group_a = {node for node in G.nodes() if (loyalty_mtx[node, a] > loyalty_mtx[node, b] and node != b and loyalty_mtx[node, a] >=0.5) or (node == a)}
     subgraph = G.subgraph(group_a) 
     coalition = list(nx.descendants(subgraph, a))+ [a]
     return np.array(coalition, dtype=int)  
@@ -164,7 +158,6 @@ def candidate_exposure(G, attacker, target, capital, loyalty_mtx, path_length):
     target_alley = group(G, target, attacker, loyalty_mtx)
     w_att = group_resources(attacker, attacker_alley, capital, loyalty_mtx)
     w_def = group_resources(target, target_alley, capital, loyalty_mtx)
-    #susceptibility = vulnerability(w_att, w_def) * min(q,capital[target])/(path_length**(1/4))      #Variation Path length penalization
     susceptibility = vulnerability(w_att, w_def) * min(q,capital[target])
     return susceptibility, attacker_alley, target_alley, w_att, w_def
 
@@ -181,7 +174,6 @@ def candidate_selection(G, loyalty_mtx, attacker, capital):
         path_length = candidate_connection(G, loyalty_mtx, attacker, target)
         # Exclude not profitable targets and not spatially connected. 
         if capital[target] < 0.1 or path_length is None: 
-        #if capital[target] < 0.1: 
             return {
             "susceptibility": 0,
             "attacker_alley": None,
@@ -227,7 +219,7 @@ def candidate_selection(G, loyalty_mtx, attacker, capital):
     # Return the optimal parameters
     return optimal
 
-def response(optimal, capital, loyalty_mtx, tribute_mtx):
+def response(optimal, capital, loyalty_mtx):
     attacker = optimal["attacker"]
     target = optimal["target"]
     w_def = optimal["w_def"]
@@ -237,6 +229,7 @@ def response(optimal, capital, loyalty_mtx, tribute_mtx):
     damage_by_attacker = min(k*w_att, w_def)   #can't cause more damage 
     damage_by_defender = min(k*w_def, w_att)
     loyalty = np.copy(loyalty_mtx[attacker][target])
+    activity = 0
     if min(q,capital[target]) > (damage_by_attacker*capital[target]/w_def):    #Consider only target's damage
         for i in target_alley:
             offering = 0.1*loyalty_mtx[i][target] * capital[i]
@@ -245,10 +238,12 @@ def response(optimal, capital, loyalty_mtx, tribute_mtx):
             for m in target_alley:
                 if 10 - c >= loyalty_mtx[i][m] >= 0:
                     loyalty_mtx[i][m] = loyalty_mtx[i][m] + c
+                    activity += 1
             for n in attacker_alley:
                 if 10 >= loyalty_mtx[i][n] >= c:
                     loyalty_mtx[i][n] = loyalty_mtx[i][n] - c
                     loyalty_mtx[n][i] = loyalty_mtx[n][i] - c
+                    activity += 2
 
         for j in attacker_alley:
             offering = 0.1*loyalty_mtx[j][attacker] * capital[j]
@@ -257,15 +252,16 @@ def response(optimal, capital, loyalty_mtx, tribute_mtx):
             for l in attacker_alley:
                 if 10 - c >= loyalty_mtx[j][l] >= 0:
                     loyalty_mtx[j][l] = loyalty_mtx[j][l] + c
-        return 1, loyalty  # Conflict: True ; Loyalty between attacker and target
+                    activity += 1
+        return 1, loyalty, activity/2  # Conflict: True ; Loyalty between attacker and target
     else:
         money = min(q,capital[target])
         capital[target], capital[attacker] = capital[target] - money, capital[attacker] + money
-        tribute_mtx[target][attacker] += 1
         if 10 - c >= loyalty_mtx[target][attacker] >= 0 :
             loyalty_mtx[target][attacker] += c
             loyalty_mtx[attacker][target] += c
-        return 0, loyalty   # Conflict: False ; Loyalty between attacker and target
+            activity += 2
+        return 0, loyalty, activity/2   # Conflict: False ; Loyalty between attacker and target, activity
 
 # Simulation --------------------------------------------------------------------------
 class Simulation:
@@ -276,16 +272,15 @@ class Simulation:
         self.G = G                                              # Network
         self.capital = np.zeros(self.N)                         # Wealth 
         self.loyalty_mtx = np.identity(self.N, dtype= int)*10 
-        self.tribute_mtx = np.zeros((self.N, self.N), dtype=int)
         
     def simulate_activation(self):
         attacker = random.randrange(0, self.N)
         optimal = candidate_selection(self.G, self.loyalty_mtx, attacker, self.capital)
         if optimal["susceptibility"] > 0:    #Target
-            decision, loyalty = response(optimal, self.capital, self.loyalty_mtx, self.tribute_mtx)
-            return decision, loyalty, optimal 
+            decision, loyalty, activity = response(optimal, self.capital, self.loyalty_mtx)
+            return decision, loyalty, optimal, activity 
         else:         
-            return None, None, optimal      
+            return None, None, optimal, 0      
 
     def run_simulation(self, pbar = None):  
         #Get the total number of iterations
@@ -293,7 +288,7 @@ class Simulation:
         #Initialize the resources for each actor
         for i in range(self.N):
             self.capital[i] = random.randrange(300,500,1)
-        loyalty_list, tribute_list = [], []  # Lists for periodic loyalty, tribute matrices
+        loyalty_list = [] # Lists for periodic loyalty
         data_matrix = np.zeros((total_iterations+1, self.N + 10), dtype=np.float32)  
         data_matrix[0,10:] = self.capital
         #Create the charging bar if pbar is provided
@@ -304,38 +299,33 @@ class Simulation:
         for year in range(self.years):
             if self.rank == 1:
                 loyalty_list.append(np.copy(self.loyalty_mtx))
-                tribute_list.append(np.copy(self.tribute_mtx))
-            loyalty_prev = np.copy(self.loyalty_mtx)
             for k in range( self.N // demands):
-                decision, loyalty, optimal = self.simulate_activation()
+                loyalty_prev = np.copy(self.loyalty_mtx)
+                decision, loyalty, optimal, activity = self.simulate_activation()
                 if decision is not None:
-                    # Perform element-wise comparison and count the number of differing elements
-                    differences = loyalty_prev != self.loyalty_mtx
-                    num_differences = np.sum(differences)
+                    # Perform element-wise comparison and count the number of differing elements)
                     info = np.array([decision, optimal["attacker"], optimal["target"], loyalty, 
                             len(optimal["target_alley"] ), len(optimal["attacker_alley"]), optimal["w_def"], 
-                            optimal["w_att"], optimal["path_len"],num_differences ])
+                            optimal["w_att"], optimal["path_len"], activity ])
                 else:
                     info = np.full(10, None)
                 data_matrix[iterator,:10], data_matrix[iterator,10:] = info, self.capital
                 iterator += 1
                 if pbar:
                     pbar.update(1)
-            self.capital += r
-           
+            self.capital += r         
             # Calculate the increment amount (5% of each element's value)    #Proportional to what they have
             #increment = 0.05 * self.capital
             #self.capital += increment
             
         loyalty_list.append(np.copy(self.loyalty_mtx))
-        tribute_list.append(np.copy(self.tribute_mtx))
-        return loyalty_list, tribute_list, data_matrix
+        return loyalty_list, data_matrix
 
 def run(rank, output_dir, N, years, G):
     simulation = Simulation(N, years, G, rank)
     with tqdm(total=total_iterations, desc="Simulation Progress", unit="iteration") as pbar:
-        loyalty_list, tribute_list, data_matrix = simulation.run_simulation(pbar=pbar) 
-        saving_data(rank, output_dir, loyalty_list, tribute_list, data_matrix)
+        loyalty_list, data_matrix = simulation.run_simulation(pbar=pbar) 
+        saving_data(rank, output_dir, loyalty_list, data_matrix)
     
 if __name__ == "__main__":
     args = parse_arguments()
