@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import time
 import math
 import multiprocessing as mp
-
+from multiprocessing import Pool
+from tqdm import tqdm
 
 global c
 c = 0.1
@@ -126,18 +127,19 @@ def parallel_simulation(args):
 
 
 N = 100
+q = 250
 L = int(np.sqrt(N))
-simulations = 20
-transient = 110000
-steps = 120000
+simulations = 1
+transient = 1100
+steps = 1200
 decay_rate = 0.1  # Make sure to define decay_rate
 
 orders_arr = np.arange(1, L // 2 + 1)
 probabilities = np.exp(-decay_rate * orders_arr)
 probabilities /= np.sum(probabilities)
 
-k_num = 25
-r_num = 25
+k_num = 5
+r_num = 5
 k_values = np.linspace(0, 1, k_num, endpoint=True)
 r_values = np.linspace(0, 400, r_num, endpoint=True)
 gini_matrix = np.zeros((k_num, r_num))
@@ -148,6 +150,7 @@ if __name__ == "__main__":
 
     # Use Pool to parallelize the outer loop
     n_cpu = mp.cpu_count()
+    print(n_cpu)
     pool = Pool(processes=n_cpu)
     args_list = [(i, j, k_values[i], r_values[j]) for i in range(k_num) for j in range(r_num)]
     results = list(tqdm(pool.imap(parallel_simulation, args_list), total=len(args_list)))

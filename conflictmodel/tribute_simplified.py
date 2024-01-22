@@ -150,6 +150,17 @@ def group(G, a, b, loyalty_mtx):
     coalition = list(nx.descendants(subgraph, a))+ [a]
     return np.array(coalition, dtype=int)  
 
+def group_global(a, b, loyalty_mtx):
+    loyalty_to_a = loyalty_mtx[:, a]
+    loyalty_to_b = loyalty_mtx[:, b]
+    group_a = np.where(loyalty_to_a > loyalty_to_b)[0]
+    group_b = np.where(loyalty_to_b > loyalty_to_a)[0]   
+    # Include "a" in group_a and "b" in group_b
+    group_a = np.union1d(group_a, [a])
+    group_b = np.union1d(group_b, [b])
+    
+    return group_a, group_b
+    
 def candidate_exposure(G, attacker, target, capital, loyalty_mtx, path_length):
     """
     This function calculates the susceptibility 
@@ -161,63 +172,99 @@ def candidate_exposure(G, attacker, target, capital, loyalty_mtx, path_length):
     susceptibility = vulnerability(w_att, w_def) * min(q,capital[target])
     return susceptibility, attacker_alley, target_alley, w_att, w_def
 
-def candidate_selection(G, loyalty_mtx, attacker, capital):
+def candidate_selection(G, loyalty_mtx, attacker, capital, network_type):
     """
     This function selects the best target possible if any
     """
-    neighbors_attacker = list(G.neighbors(attacker))
-    
-    def get_optimal_params(target):
-        """
-        Helper function to calculate susceptibility and other parameters for a target node.
-        """
-        path_length = candidate_connection(G, loyalty_mtx, attacker, target)
-        # Exclude not profitable targets and not spatially connected. 
-        if capital[target] < 0.1 or path_length is None: 
+    if network_type == 'complete':
+        def get_optimal_params(target):  
+            attacker_alley, target_alley = group_global(attacker, target, loyalty_mtx)
+            w_att = group_resources(attacker, attacker_alley, capital, loyalty_mtx)
+            w_def = group_resources(target, target_alley, capital, loyalty_mtx)
+            susceptibility = vulnerability(w_att, w_def) * min(q, capital[target])
             return {
+                "susceptibility": susceptibility,
+                "attacker_alley": attacker_alley,
+                "target_alley": target_alley,
+                "w_att": w_att,
+                "w_def": w_def,
+                "target": target,
+                "attacker": attacker,
+                "path_len":None
+            }
+
+        optimal = {
             "susceptibility": 0,
             "attacker_alley": None,
             "target_alley": None,
             "w_att": None,
             "w_def": None,
             "target": None,
-            "attacker":None, 
+            "attacker": None,
             "path_len":None
         }
-        # Calculate parameters using candidate_exposure function
-        susceptibility, attacker_alley, target_alley, w_att, w_def = candidate_exposure(G, attacker, target, capital, loyalty_mtx, path_length)
-        return {
-            "susceptibility": susceptibility,
-            "attacker_alley": attacker_alley,
-            "target_alley": target_alley,
-            "w_att": w_att,
-            "w_def": w_def,
-            "target": target,
-            "attacker":attacker,
-            "path_len":path_length
-        }
-    
-    # Initialize optimal parameters with the first neighbor of the attacker
-    optimal = get_optimal_params(neighbors_attacker[0])   
-    # Iterate through other neighbors of the attacker and update optimal parameters if a better target is found
-    for target in neighbors_attacker[1:]:
-        params = get_optimal_params(target)
-        # Check if the target is valid and has higher susceptibility
-        if params and params["susceptibility"] > optimal["susceptibility"]:
-            optimal.update(params)  
-            
-    # Iterate through all nodes that are not neighbors of the attacker and update optimal parameters if a better target is found
-    for target in [node for node in range(len(loyalty_mtx)) if node not in neighbors_attacker and node != attacker]:
-        # Check if target's neighbors are not commited with attacker (no possible path)
-        if all(loyalty_mtx[node][attacker] <= loyalty_mtx[node][target] for node in list(G.neighbors(target))):
-            continue
-        params = get_optimal_params(target)
-        # Update optimal parameters if a better target is found
-        if params and params["susceptibility"] > optimal["susceptibility"]:
-            optimal.update(params)
-    
-    # Return the optimal parameters
-    return optimal
+
+        for i in range(len(loyalty_mtx)):
+            if i != attacker:
+                params = get_optimal_params(i)
+                if params["susceptibility"] > optimal["susceptibility"]:
+                    optimal.update(params)
+
+        return optimal
+    else:
+        neighbors_attacker = list(G.neighbors(attacker))
+        params
+        def get_optimal_params(target):
+            """
+            Helper function to calculate susceptibility and other parameters for a target node.
+            """
+            path_length = candidate_connection(G, loyalty_mtx, attacker, target)
+            # Exclude not profitable targets and not spatially connected. 
+            if capital[target] < 0.1 or path_length is None: 
+                return {
+                "susceptibility": 0,
+                "attacker_alley": None,
+                "target_alley": None,
+                "w_att": None,
+                "w_def": None,
+                "target": None,
+                "attacker":None, 
+                "path_len":None
+            }
+            # Calculate parameters using candidate_exposure function
+            susceptibility, attacker_alley, target_alley, w_att, w_def = candidate_exposure(G, attacker, target, capital, loyalty_mtx, path_length)
+            return {
+                "susceptibility": susceptibility,
+                "attacker_alley": attacker_alley,
+                "target_alley": target_alley,
+                "w_att": w_att,
+                "w_def": w_def,
+                "target": target,
+                "attacker":attacker,
+                "path_len":path_length
+            }
+        
+        # Initialize optimal parameters with the first neighbor of the attacker
+        optimal = get_optimal_params(neighbors_attacker[0])   
+        # Iterate through other neighbors of the attacker and update optimal parameters if a better target is found
+        for target in neighbors_attacker[1:]:
+            params = get_optimal_params(target)
+            # Check if the target is valid and has higher susceptibility
+            if params and params["susceptibility"] > optimal["susceptibility"]:
+                optimal.update(params)  
+                
+        # Iterate through all nodes that are not neighbors of the attacker and update optimal parameters if a better target is found
+        for target in [node for node in range(len(loyalty_mtx)) if node not in neighbors_attacker and node != attacker]:
+            # Check if target's neighbors are not commited with attacker (no possible path)
+            if all(loyalty_mtx[node][attacker] <= loyalty_mtx[node][target] for node in list(G.neighbors(target))):
+                continue
+            params = get_optimal_params(target)
+            # Update optimal parameters if a better target is found
+            if params and params["susceptibility"] > optimal["susceptibility"]:
+                optimal.update(params)
+        
+        # Return the optimal parameters
+        return optimal
 
 def response(optimal, capital, loyalty_mtx):
     attacker = optimal["attacker"]
@@ -265,17 +312,17 @@ def response(optimal, capital, loyalty_mtx):
 
 # Simulation --------------------------------------------------------------------------
 class Simulation:
-    def __init__(self, N, years, G, rank):
+    def __init__(self, N, years, G, rank, network_type):
         self.rank = rank
         self.N = N                                              # Number of actors
         self.years = years                                      # Years 
         self.G = G                                              # Network
         self.capital = np.zeros(self.N)                         # Wealth 
         self.loyalty_mtx = np.identity(self.N, dtype= int)*10 
-        
+        self.network_type = network_type
     def simulate_activation(self):
         attacker = random.randrange(0, self.N)
-        optimal = candidate_selection(self.G, self.loyalty_mtx, attacker, self.capital)
+        optimal = candidate_selection(self.G, self.loyalty_mtx, attacker, self.capital, self.network_type)
         if optimal["susceptibility"] > 0:    #Target
             decision, loyalty, activity = response(optimal, self.capital, self.loyalty_mtx)
             return decision, loyalty, optimal, activity 
@@ -300,7 +347,6 @@ class Simulation:
             if self.rank == 1:
                 loyalty_list.append(np.copy(self.loyalty_mtx))
             for k in range( self.N // demands):
-                loyalty_prev = np.copy(self.loyalty_mtx)
                 decision, loyalty, optimal, activity = self.simulate_activation()
                 if decision is not None:
                     # Perform element-wise comparison and count the number of differing elements)
@@ -321,8 +367,8 @@ class Simulation:
         loyalty_list.append(np.copy(self.loyalty_mtx))
         return loyalty_list, data_matrix
 
-def run(rank, output_dir, N, years, G):
-    simulation = Simulation(N, years, G, rank)
+def run(rank, output_dir, N, years, G, network_type):
+    simulation = Simulation(N, years, G, rank, network_type)
     with tqdm(total=total_iterations, desc="Simulation Progress", unit="iteration") as pbar:
         loyalty_list, data_matrix = simulation.run_simulation(pbar=pbar) 
         saving_data(rank, output_dir, loyalty_list, data_matrix)
@@ -345,7 +391,7 @@ if __name__ == "__main__":
     # Call Pool
     pool = mp.Pool(processes=ncpu)
     # Create a list of tuples containing all combinations of XM and B values
-    parameters = [(rank, output_dir, N, years, network) for rank in range(1,ncpu+1)]
+    parameters = [(rank, output_dir, N, years, network, network_type) for rank in range(1,ncpu+1)]
     # Call run for all parameter tuples using pool.map
     pool.starmap(run, parameters)
     # Close the pool
