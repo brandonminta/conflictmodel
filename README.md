@@ -1,4 +1,4 @@
-# conflictmodel
+# Conflictmodel
 Broadly speaking, complex systems can be understood as collections of agents that interact non-trivially among themselves and their environments producing novel and rich phenomena that, typically, cannot be anticipated from the study of their individual units.  We delve into the work of the prominent social scientist Robert Axelrod whose work in social simulation has significantly advanced our understanding in complex systems. He proposed a model that describes the state formation through simple rules of interaction. As nations are no longer completely stable, we see states disintegrating, as in the Soviet Union and larger units being organized, such as the European Union. This dynamic of political actors is essential for understanding the future of global politics.  
 
 ## Abstract
