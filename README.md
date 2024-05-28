@@ -1,5 +1,6 @@
 # Conflictmodel
 Broadly speaking, complex systems can be understood as collections of agents that interact non-trivially among themselves and their environments producing novel and rich phenomena that, typically, cannot be anticipated from the study of their individual units.  We delve into the work of the prominent social scientist Robert Axelrod whose work in social simulation has significantly advanced our understanding in complex systems. He proposed a model that describes the state formation through simple rules of interaction. As nations are no longer completely stable, we see states disintegrating, as in the Soviet Union and larger units being organized, such as the European Union. This dynamic of political actors is essential for understanding the future of global politics.  
+![Commitment evolution](outputfolder/commitment_animations/test1.gif)
 
 ## Abstract
 In this work we implement the mathematical formulation ideas of a socio-dynamic model based on a tribute model, to simulate the interaction of elements and study the collective behaviors and the emergence of new levels of organization. The system is dynamic-coevolutionary in which states depend on local states and vice versa with discrete space and time. The research problem is to extend Axelrod’s original insights into a broader context, specifically to understand complex sociopolitical dynamics and their implications. The challenge lies in the complexity of these interactions and the need for computational tools to analyze them. In sum, What are the non-trivial collective behaviors observed in our extended and computationally implemented version of Axelrod’s model? 
@@ -26,7 +27,6 @@ $$L_{i\tau}=\kappa W_{\alpha}\frac{W_{i}}{W_{\tau}}$$
 Finally, each decision develops degrees of commitment and influences future decisions. We establish a steady increase in commitment under "submission", "protection" and "friendship" and a decrease under "hostility", in and out of alliances. We track this history with a matrix. The commitment Matrix is and identity Matrix NxN where $M_{i,j}=C_{i,j}$ is the mutual commitment between i and j. Identifying aggregations of agents becomes more challenging due to the increasing complexity of the commitment structure. To better visualize these dynamics, we generate a graph using snapshots of the commitment matrix. We construct an adjacency matrix by establishing weighted edges between coalition members as defined by Axelrod. Then we employed the Louvain community detection algorithm to identify clusters and colored them for easy identification.
 
 ![Constructed Adaptative Commitments Network fot the tribute model](outputfolder/images/Commitments.png)
-
 
 
 ## Instructions
